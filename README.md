@@ -1,3 +1,8 @@
+# Forked
+
+The orginal is https://github.com/Merlin1809/Eclipse-Shader
+I cant fork it because I already forked Bliss!
+
 # Eclipse - A Bliss Edit
 
 Bliss is already one of the best and most feature rich shaders out there, yet I still wanted more...  
