@@ -186,5 +186,5 @@ void main() {
 	  color = colorGrading(color);
   #endif
   
-	gl_FragData[0] = vec4(clamp(int8Dither(color, texcoord),0.0,1.0), 0.0);
+	gl_FragData[0] = vec4(color, 0.0);
 }

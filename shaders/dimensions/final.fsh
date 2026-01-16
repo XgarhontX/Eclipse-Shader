@@ -48,8 +48,9 @@ uniform mat4 gbufferPreviousModelView;
 #endif
 
 #include "/lib/color_transforms.glsl"
-#include "/lib/color_dither.glsl"
+// #include "/lib/color_dither.glsl"
 #include "/lib/res_params.glsl"
+#include "/renodx.glsl"
 
 uniform float near;
 uniform float far;
@@ -226,6 +227,9 @@ void main() {
   #if DEBUG_VIEW == debug_CLOUDDEPTHTEX && defined CUMULONIMBUS_LIGHTNING && CUMULONIMBUS > 0
     COLOR = imageLoad(cloudDepthTex, ivec2(gl_FragCoord.xy*VL_RENDER_SCALE*RENDER_SCALE)).rgb;
   #endif
+
+  //RenderIntermediatePass
+  COLOR = RenderIntermediatePass(COLOR);
 
   gl_FragColor.rgb = COLOR;
 

@@ -4,6 +4,13 @@
 
 #include "/lib/SSBOs.glsl"
 
+//#define RENODX_UPGRADE_ENABLED
+#define RENODX_SCALING_DEFAULT RENODX_SCALING_PERCHANNEL
+#define RENODX_WORKING_COLORSPACE RENODX_BT709
+#define RENODX_SCALING_DEFAULT RENODX_SCALING_PERCHANNEL
+#define RENODX_HDRTONEMAP_TYPE_DEFAULT RENODX_HDRTONEMAP_TYPE_REINHARD
+#include "/renodx.glsl"
+
 in vec2 texcoord;
 
 const bool colortex5MipmapEnabled = true;
@@ -319,16 +326,26 @@ void main() {
 		col *= blackbody(WHITE_BALANCE);
 	#endif
 
-	#ifndef USE_ACES_COLORSPACE_APPROXIMATION
-		col = LinearTosRGB(TONEMAP(col));
-	#else
-		col = col * ACESInputMat;
-		col = TONEMAP(col);
+	vec3 colorUntonemapped = col;
 
-		col = LinearTosRGB(clamp(col * ACESOutputMat, 0.0, 1.0));
+	//SDR
+#if defined RENODX_UPGRADE_ENABLED
+	#ifndef USE_ACES_COLORSPACE_APPROXIMATION
+		col = TONEMAP(col);
+		colorUntonemapped *= YFromBT709(TONEMAP(vec3(0.18))) / 0.18; //midgray trick
+	#else
+		col = TONEMAP(col * ACESInputMat) * ACESOutputMat;
+		colorUntonemapped *= YFromBT709(TONEMAP(vec3(0.18) * ACESInputMat) * ACESOutputMat) / 0.18; //midgray trick
 	#endif
 
-	gl_FragData[0].rgb = clamp(int8Dither(col,texcoord),0.0,1.0);
+	//apply per channel
+	col = ApplyPerChannelCorrection(colorUntonemapped, col);
+#endif
+
+	col = ToneMapPass(colorUntonemapped, col.xyz, texcoord.xy);
+	col.xyz = SrgbEncodeSafe(col.xyz);
+
+	gl_FragData[0].rgb = col;
 	
 	#if DOF_QUALITY == 5
 		#if FOCUS_LASER_COLOR == 0 // Red
