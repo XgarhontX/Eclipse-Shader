@@ -10,7 +10,7 @@ const int colortex2Format = RGBA16F;				// forward + transparencies (gbuffer->co
 const int colortex3Format = R11F_G11F_B10F;			// frame buffer + bloom (deferred6->final)
 const int colortex4Format = RGBA16F;				// light values and skyboxes (everything)
 const int colortex6Format = R11F_G11F_B10F;			// additional buffer for bloom (composite3->final)
-const int colortex7Format = RGBA8;					// Final output, transparencies id (gbuffer->composite4)
+const int colortex7Format = RGBA16F;					// Final output, transparencies id (gbuffer->composite4)
 const int colortex8Format = RGBA16;					// Specular Texture, flat normals, vanilla AO
 
 const int colortex9Format = RGBA16;				// rain (encoded rg: gbuffers_weather -> composite3), resource pack sky (rgba: gbuffers_skytextured, gbuffers_skybasic -> deferred1), combined depth quarter res (ba: deferred2 -> wherever)
