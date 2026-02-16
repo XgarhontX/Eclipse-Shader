@@ -3,11 +3,11 @@
         return (2.0 * _near) / (_far + _near - depth * (_far - _near));
     }
 
-    float SSRT_Handlight_Shadows(vec3 viewPos, bool depthCheck, vec3 lightDir, float noise, vec3 normals, bool hand){
+    float SSRT_Handlight_Shadows(vec3 viewPos, const bool depthCheck, vec3 lightDir, float noise, vec3 normals, bool hand){
         
         if(hand) return 1.0;
 
-        vec3 WlightDir = normalize((gbufferModelViewInverse*vec4(lightDir, 1.0)).xyz);
+        vec3 WlightDir = normalize((gbufferModelViewInverse*vec4(lightDir, 1.0)) .xyz);
 
         float NdotL = dot(normals, WlightDir);
         NdotL = smoothstep(0.0, 0.2, abs(NdotL));
@@ -75,21 +75,27 @@
         vec3 lightFinal = vec3(0.0);
         vec3 lightColor = vec3(0.0);
 
-        uvec2 blockData = texelFetch(texBlockData, itemId, 0).rg;
-        vec4 lightColorRange = unpackUnorm4x8(blockData.r);
+        uint blockData = imageLoad(imgBlockData, itemId).r;
+        vec4 lightColorRange = unpackUnorm4x8(blockData);
         lightColor = srgbToLinear(lightColorRange.rgb);
         lightRange = lightColorRange.a * 255.0;
 
         if (lightRange > 0.0) {
             float lightDist = length(playerPos+relativeEyePosition);
             // vec3 lightDir = playerPos / lightDist;
-            float NoL = 1.0;//max(dot(normal, lightDir), 0.0);
+            const float NoL = 1.0;//max(dot(normal, lightDir), 0.0);
             float falloff = pow(1.0 - lightDist / lightRange, 3.0);
             lightFinal = lightColor * NoL * max(falloff, 0.0);
         }
 
         return lightFinal;
     }
+#endif
+
+#if defined PHOTONICS_ENABLED && !defined PHOTONICS_GI_ONLY
+    uniform sampler2D radiosity_direct;
+    uniform sampler2D radiosity_direct_soft;
+    uniform sampler2D radiosity_handheld;
 #endif
 
 vec3 doBlockLightLighting(
@@ -110,7 +116,7 @@ vec3 doBlockLightLighting(
     float lightmapCurve = mix(lightmapLight, 2.5, lightmapBrightspot);
     vec3 blockLight = lightmapCurve * lightColor;
     
-    #if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store
+    #if defined IS_LPV_ENABLED && defined MC_GL_ARB_shader_image_load_store && (!defined PHOTONICS_LIGHT_PASS || !defined PHOTONICS_ENABLED || defined PHOTONICS_GI_ONLY)
         vec4 lpvSample = SampleLpvLinear(lpvPos);
         #ifdef VANILLA_LIGHTMAP_MASK
             lpvSample.rgb *= lightmapCurve;
@@ -118,7 +124,7 @@ vec3 doBlockLightLighting(
         // vec3 lpvBlockLight = GetLpvBlockLight(lpvSample);
 
         // create a smooth falloff at the edges of the voxel volume.
-        float fadeLength = 10.0; // in meters
+        const float fadeLength = 10.0; // in meters
         vec3 cubicRadius = clamp(min(((LpvSize3-1.0) - lpvPos)/fadeLength, lpvPos/fadeLength), 0.0, 1.0);
         float voxelRangeFalloff = cubicRadius.x*cubicRadius.y*cubicRadius.z;
         voxelRangeFalloff = 1.0 - pow(1.0-pow(voxelRangeFalloff,1.5),3.0);
@@ -161,6 +167,32 @@ vec3 doBlockLightLighting(
             }
         #endif
     #endif
+    
+    #if defined PHOTONICS_ENABLED && !defined PHOTONICS_GI_ONLY && !defined WEATHER && defined PHOTONICS_LIGHT_PASS
+        #if defined DISTANT_HORIZONS || defined VOXY
+        if(!depthCheck)
+        #endif
+        {
+            vec3 ph_direct_hand = texture(radiosity_handheld, gl_FragCoord.xy*texelSize).xyz;
+            vec3 ph_direct = texture(radiosity_direct, gl_FragCoord.xy*texelSize).xyz;
+            vec4 ph_direct_soft = texture(radiosity_direct_soft, gl_FragCoord.xy*texelSize);
+
+            vec3 photonicsLight = ph_direct_hand * 1.35;
+            photonicsLight += ph_direct;
+            photonicsLight = pow(photonicsLight, vec3(1.45));
+            photonicsLight += (ph_direct_soft.xyz / max(ph_direct_soft.w, 1.0f));
+            photonicsLight += lightColor * 2.5 * min(max(lightmap-0.999,0.0)/(1.0-0.999),1.0);
+
+            #if defined DISTANT_HORIZONS || defined VOXY
+				float photonicsFalloff = smoothstep(min(far, 256.0), min(0.9*far, 230.0), length(playerPos));
+			#else
+				float photonicsFalloff = smoothstep(256.0, 230.0, length(playerPos));
+			#endif
+
+            
+            blockLight = mix(blockLight, photonicsLight, photonicsFalloff);
+        }
+    #endif
 
     return blockLight * TORCH_AMOUNT;
 }
@@ -183,14 +215,6 @@ vec3 doIndirectLighting(
 
 #ifndef VOXY_PROGRAM
 uniform float centerDepthSmooth;
-
-#if defined VIVECRAFT
-	uniform bool vivecraftIsVR;
-	uniform vec3 vivecraftRelativeMainHandPos;
-	uniform vec3 vivecraftRelativeOffHandPos;
-	uniform mat4 vivecraftRelativeMainHandRot;
-	uniform mat4 vivecraftRelativeOffHandRot;
-#endif
 
 vec3 calculateFlashlight(in vec2 texcoord, in vec3 viewPos, in vec3 albedo, in vec3 normal, out vec4 flashLightSpecularData, bool hand){
 

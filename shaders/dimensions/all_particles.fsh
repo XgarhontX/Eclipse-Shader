@@ -114,11 +114,20 @@ uniform int heldItemId2;
 #endif
 
 #ifdef IS_LPV_ENABLED
+	#include "/lib/lpv_blocks.glsl"
 	#include "/lib/lpv_common.glsl"
 	#include "/lib/lpv_render.glsl"
 #endif
 
 #undef FLASHLIGHT_BOUNCED_INDIRECT
+
+#if defined VIVECRAFT
+	uniform bool vivecraftIsVR;
+	uniform vec3 vivecraftRelativeMainHandPos;
+	uniform vec3 vivecraftRelativeOffHandPos;
+	uniform mat4 vivecraftRelativeMainHandRot;
+	uniform mat4 vivecraftRelativeOffHandRot;
+#endif
 
 #include "/lib/diffuse_lighting.glsl"
 #include "/lib/sky_gradient.glsl"
@@ -396,7 +405,11 @@ void main() {
 	gl_FragData[2] = vec4(0.0);
 	
 	#ifdef LINES
-		bool selectionBox = renderStage == MC_RENDER_STAGE_OUTLINE;
+		#if MC_VERSION == 12101
+			bool selectionBox = dot(color.rgb,vec3(0.33333)) < 0.00001;
+		#else
+			bool selectionBox = renderStage == MC_RENDER_STAGE_OUTLINE;
+		#endif
 		#ifndef SELECT_BOX
 			if(selectionBox) discard;
 		#endif

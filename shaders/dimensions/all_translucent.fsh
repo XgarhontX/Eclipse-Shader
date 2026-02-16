@@ -149,7 +149,7 @@ uniform float waterEnteredAltitude;
 
 #if WATER_INTERACTION == 2
 	#ifdef PIXELATED_WAVES
-		layout (rgba16f) uniform image2D waveSim2;
+		layout (rgba16f) uniform readonly image2D waveSim2;
 	#else
 		uniform sampler2D waveSim2Sampler;
 	#endif
@@ -213,6 +213,14 @@ uniform vec3 relativeEyePosition;
 #include "/lib/lpv_buffer.glsl"
 
 #include "/lib/specular.glsl"
+#if defined VIVECRAFT
+	uniform bool vivecraftIsVR;
+	uniform vec3 vivecraftRelativeMainHandPos;
+	uniform vec3 vivecraftRelativeOffHandPos;
+	uniform mat4 vivecraftRelativeMainHandRot;
+	uniform mat4 vivecraftRelativeOffHandRot;
+#endif
+
 #include "/lib/diffuse_lighting.glsl"
 
 #if defined PHYSICSMOD_OCEAN_SHADER
@@ -259,6 +267,7 @@ vec3 getParallaxDisplacement(vec3 waterPos, vec3 playerPos) {
 
 	float largeWaves = texture(noisetex, waterPos.xy / 600.0 ).b;
 	float largeWavesCurved = pow(1.0-pow(1.0-largeWaves,2.5),4.5);
+	largeWavesCurved = mix(1.0-largeWavesCurved, largeWavesCurved, PATCHY_WAVE_BLEND);
 
 	float waterHeight = getWaterHeightmap(waterPos.xy, largeWaves, largeWavesCurved);
 	// waterHeight = exp(-20.0*sqrt(waterHeight));
@@ -367,7 +376,7 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 			vec3 projectedShadowPosition = mat3(shadowModelView) * playerPos + shadowModelView[3].xyz;
 		#endif
 
-		applyShadowBias(projectedShadowPosition, playerPos, geoNormals, 0.0);
+		applyShadowBias(projectedShadowPosition, playerPos, geoNormals);
 
 		projectedShadowPosition = diagonal3(shadowProjection) * projectedShadowPosition + shadowProjection[3].xyz;
 
@@ -386,7 +395,7 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 
 	#if defined END_ISLAND_LIGHT && defined END_SHADER
 		vec4 shadowPos = customShadowMatrixSSBO * vec4(playerPos, 1.0);
-		applyShadowBias(shadowPos.xyz, playerPos, geoNormals, 0.0);
+		applyShadowBias(shadowPos.xyz, playerPos, geoNormals);
 		shadowPos =  customShadowPerspectiveSSBO * shadowPos;
 		vec3 projectedShadowPosition = shadowPos.xyz / shadowPos.w;
 	#endif
@@ -402,9 +411,9 @@ float ComputeShadowMap(inout vec3 directLightColor, vec3 playerPos, float maxDis
 	#ifdef BASIC_SHADOW_FILTER
 		int samples = int(SHADOW_FILTER_SAMPLE_COUNT * 0.5);
 		#ifdef END_SHADER
-			float rdMul = (4.0*distortFactor*d0*k/shadowMapResolution) * 13.0;
+			float rdMul = 52.0*distortFactor*d0k;
 		#else
-			float rdMul = (4.0*distortFactor*d0*k/shadowMapResolution) * 0.6;
+			float rdMul = 2.4*distortFactor*d0k;
 		#endif
 
 		for(int i = 0; i < samples; i++){
@@ -801,11 +810,11 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 
 				#ifdef PIXELATED_WAVES
 					#if WATER_SIM_SCALE == 0
-						float NORMAL_SCALE = 20.0;
+						const float NORMAL_SCALE = 20.0;
 					#elif WATER_SIM_SCALE == 1
-						float NORMAL_SCALE = 40.0;
+						const float NORMAL_SCALE = 40.0;
 					#else
-						float NORMAL_SCALE = 80.0;
+						const float NORMAL_SCALE = 80.0;
 					#endif
 
 					ivec2 normalSize = imageSize(waveSim2);
@@ -816,13 +825,13 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 						vec4 waves = imageLoad(waveSim2, ivec2(centeredUV));
 				#else
 					#if WATER_SIM_DISTANCE == 1
-						float NORMAL_SCALE = 0.04;
+						const float NORMAL_SCALE = 0.04;
 					#elif WATER_SIM_DISTANCE == 2
-						float NORMAL_SCALE = 0.02;
+						const float NORMAL_SCALE = 0.02;
 					#elif WATER_SIM_DISTANCE == 3
-						float NORMAL_SCALE = 0.015;
+						const float NORMAL_SCALE = 0.015;
 					#else
-						float NORMAL_SCALE = 0.01;
+						const float NORMAL_SCALE = 0.01;
 					#endif
 
 					vec2 waveUV = (worldPos.xz - previousCameraPositionWave2.xz) * NORMAL_SCALE;
@@ -878,8 +887,8 @@ if (gl_FragCoord.x * texelSize.x < 1.0  && gl_FragCoord.y * texelSize.y < 1.0 )	
 //////////////////////////////// SPECULARS /////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-
 	vec3 SpecularTex = texture(specular, lmtexcoord.xy, mipmapBias).rga;
+	
 ////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////// DIFFUSE LIGHTING //////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////

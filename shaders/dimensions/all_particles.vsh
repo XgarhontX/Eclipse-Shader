@@ -62,7 +62,6 @@ vec4 toClipSpace3(vec3 viewSpacePosition) {
 #ifdef LINES
 	uniform int currentSelectedBlockId;
 	uniform int renderStage;
-	uniform vec3 currentSelectedBlockPos;
 
 	#include "/lib/blocks.glsl"
 
@@ -136,12 +135,12 @@ void main() {
 			}
 		#endif
 
-		#ifdef LINES
-			#ifdef PLANET_CURVATURE
-			float curvature = length(worldpos) / (16*8);
+		#ifdef PLANET_CURVATURE
+			float curvature = length(worldpos.xz) / (16*8);
 			worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
-			#endif
+		#endif
 
+		#ifdef LINES
 			#if defined WAVY_PLANTS
 				bool selectionBox = renderStage == MC_RENDER_STAGE_OUTLINE;
 				if(currentSelectedBlockId == BLOCK_AIR_WAVING && abs(position.z) < 64.0 && selectionBox){
@@ -155,7 +154,17 @@ void main() {
 
 			gl_Position = toClipSpace3(position);
 	#else
-		gl_Position = ftransform();
+		vec3 position = mat3(gl_ModelViewMatrix) * vec3(gl_Vertex) + gl_ModelViewMatrix[3].xyz;
+		vec3 worldpos = mat3(gbufferModelViewInverse) * position + gbufferModelViewInverse[3].xyz;
+
+		#ifdef PLANET_CURVATURE
+			float curvature = length(worldpos.xz) / (16*8);
+			worldpos.y -= curvature*curvature * CURVATURE_AMOUNT;
+		#endif
+
+		position = mat3(gbufferModelView) * worldpos + gbufferModelView[3].xyz;
+
+		gl_Position = toClipSpace3(position);
 	#endif
 	
 	#ifdef OVERWORLD_SHADER		

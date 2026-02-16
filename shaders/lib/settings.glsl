@@ -302,10 +302,20 @@ const float entityShadowDistanceMul = 0.25; // [0.01 0.02 0.03 0.04 0.05 0.10 0.
 	#define LIGHTSOURCE_REFLECTION
 #endif
 
-#define EMISSIVE_TYPE 1 // [0 1 2 3]
+#define EMISSIVE_TYPE_SETTING 4 // [0 1 2 3 4]
 #define Emissive_Brightness 1.0 // [1.0 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0 15.0 20.0 25.0 30.0 35.0 40.0 45.0 50.0 100.]
 #define Emissive_Curve 2.0 // [0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 ]
 
+
+#if EMISSIVE_TYPE_SETTING == 4
+	#ifdef MC_TEXTURE_FORMAT_LAB_PBR
+		#define EMISSIVE_TYPE 2
+	#else
+		#define EMISSIVE_TYPE 1
+	#endif
+#else
+	#define EMISSIVE_TYPE EMISSIVE_TYPE_SETTING
+#endif
 
 // #define POM
 // #define Horrible_slope_normals
@@ -325,7 +335,7 @@ const float entityShadowDistanceMul = 0.25; // [0.01 0.02 0.03 0.04 0.05 0.10 0.
 #ifdef DEPTH_WRITE_POM
 #endif
 
-#define SSS_TYPE 1 // [0 1 2 3]
+#define SSS_TYPE_SETTING 4 // [0 1 2 3 4]
 #define LabSSS_Curve 1.0 // [0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0]
 // #define MOB_SSS
 // #define MISC_BLOCK_SSS
@@ -334,6 +344,16 @@ const float entityShadowDistanceMul = 0.25; // [0.01 0.02 0.03 0.04 0.05 0.10 0.
 #define sss_absorbance_multiplier 1.0 // [0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
 #define sss_density_multiplier 1.0 		// [0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
 #define SCREENSPACE_DIRECT_SSS_BLENDING	0.5 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
+
+#if SSS_TYPE_SETTING == 4
+	#ifdef MC_TEXTURE_FORMAT_LAB_PBR
+		#define SSS_TYPE 2
+	#else
+		#define SSS_TYPE 1
+	#endif
+#else
+	#define SSS_TYPE SSS_TYPE_SETTING
+#endif
 
 // #define Porosity
 #define PUDDLE_MODE 1 // [0 1 2 3]
@@ -349,6 +369,9 @@ const float entityShadowDistanceMul = 0.25; // [0.01 0.02 0.03 0.04 0.05 0.10 0.
 #define RIPPLE_STRENGTH 1.0 // [0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
 
 // #define MATERIAL_AO
+
+#ifdef MATERIAL_AO
+#endif
 
 #define NORMAL_MAP_MULT 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
 
@@ -532,7 +555,7 @@ uniform vec3 unsigned_WmoonVecSmooth;
 
 // #define CloudLayer3
 #define CloudLayer3_coverage 0.07 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.12 0.14 0.16 0.18 0.2 0.22 0.24 0.26 0.28 0.3]
-#define CloudLayer3_density 0.07 // [0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.2 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.3 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.4 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.6 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.7 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.8 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.9 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.00]
+#define CloudLayer3_density 0.005 // [0.001 0.002 0.003 0.004 0.005 0.006 0.007 0.008 0.009 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.2 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.3 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.4 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.6 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.7 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.8 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.9 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.00]
 #define CloudLayer3_height 7000.0 // [-300.0 -290.0 -280.0 -270.0 -260.0 -250.0 -240.0 -230.0 -220.0 -210.0 -200.0 -190.0 -180.0 -170.0 -160.0 -150.0 -140.0 -130.0 -120.0 -110.0 -100.0 -90.0 -80.0 -70.0 -60.0 -50.0 -40.0 -30.0 -20.0 -10.0 0.0 10.0 20.0 30.0 40.0 50.0 60.0 70.0 80.0 90.0 100.0 110.0 120.0 130.0 140.0 150.0 160.0 170.0 180.0 190.0 200.0 210.0 220.0 230.0 240.0 250.0 260.0 270.0 280.0 290.0 300.0 310.0 320.0 330.0 340.0 350.0 360.0 370.0 380.0 390.0 400.0 410.0 420.0 430.0 440.0 450.0 460.0 470.0 480.0 490.0 500.0 510.0 520.0 530.0 540.0 550.0 560.0 570.0 580.0 590.0 600.0 700.0 800.0 900.0 1000.0 1250.0 1500.0 1750.0 2000.0 2250.0 2500.0 2750.0 3000.0 4000.0 5000.0 6000.0 7000.0]
 #define CloudLayer3_scale 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0]
 #define CloudLayer3_distance 150000.0 // [10000.0 20000.0 30000.0 40000.0 50000.0 60000.0 70000.0 80000.0 90000.0 100000.0 110000.0 120000.0 130000.0 140000.0 150000.0 160000.0 170000.0 180000.0 190000.0 200000.0 250000.0 300000.0 350000.0 400000.0 450000.0 500000.0]
@@ -772,11 +795,6 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 #define EMISSIVE_TRIMS 1 // [0 1 2]
 #define EMISSIVE_TRIMS_STRENGTH 0.7 // [0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0]
 
-// #define INCLUDE_UNLISTED_ENTITIES
-
-#ifdef INCLUDE_UNLISTED_ENTITIES
-#endif
-
 #define HARDCODED_EMISSIVES_APPROX
 
 #ifdef HARDCODED_EMISSIVES_APPROX
@@ -965,6 +983,10 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 
 #define RESOURCEPACK_SKY 0 // [0 1 2 3]
 
+#if RESOURCEPACK_SKY >= 2
+	#undef CUSTOM_MOON_ROTATION
+#endif
+
 #ifdef IS_IRIS
 	// #define TRANSLUCENT_ENTITIES
 #endif
@@ -976,10 +998,13 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 
 #define WATER_CAUSTICS_BRIGHTNESS 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 3.0 4.0 5.0 6.0 7.0 8.0 9.0 10.0]
 #define WATER_CAUSTICS_POWER 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0 1.05 1.1 1.15 1.2 1.25 1.3 1.35 1.4 1.45 1.5 1.55 1.6 1.65 1.7 1.75 1.8 1.85 1.9 1.95 2.0 2.1 2.2 2.3 2.4 2.5 2.6 2.7 2.8 2.9 3.0 3.2 3.4 3.6 3.8 4.0 4.5 5.0 6.0 7.0 8.0 9.0 10.0]
+#define PATCHY_WAVE_BLEND 1.0 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.2 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.3 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.4 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.6 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.7 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.8 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.9 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.0]
+#define WAVES_A_RADIUS 1.0 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.2 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.3 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.4 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.6 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.7 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.8 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.9 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.0 2.0 3.0 4.0 5.0]
+#define WAVES_B_RADIUS 0.15 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.11 0.12 0.13 0.14 0.15 0.16 0.17 0.18 0.19 0.2 0.21 0.22 0.23 0.24 0.25 0.26 0.27 0.28 0.29 0.3 0.31 0.32 0.33 0.34 0.35 0.36 0.37 0.38 0.39 0.4 0.41 0.42 0.43 0.44 0.45 0.46 0.47 0.48 0.49 0.5 0.51 0.52 0.53 0.54 0.55 0.56 0.57 0.58 0.59 0.6 0.61 0.62 0.63 0.64 0.65 0.66 0.67 0.68 0.69 0.7 0.71 0.72 0.73 0.74 0.75 0.76 0.77 0.78 0.79 0.8 0.81 0.82 0.83 0.84 0.85 0.86 0.87 0.88 0.89 0.9 0.91 0.92 0.93 0.94 0.95 0.96 0.97 0.98 0.99 1.0 2.0 3.0 4.0 5.0]
+
 #define DENOISE_SSS_AND_SSAO
 
 // #define HYPER_DETAILED_WAVES
-#define WAVE_DETAIL 1.0 // [1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 5.0]
 
 // #define DISABLE_ENCHANT_GLINT
 // #define DISABLE_VANILLA_EMISSIVES
@@ -1032,10 +1057,14 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 
 #define GRASS_RANGE 40.0 // [10.0 12.5 15.0 17.5 20.0 22.5 25.0 27.5 30.0 32.5 35.0 37.5 40.0 42.5 45.0 47.5 50.0 60.0 70.0 80.0 90.0 100.0]
 #define GRASS_WAVY_STRENGTH 1.0 // [0.0 0.1 0.25 0.5 0.75 1.0 1.25 1.5 1.75 2.0]
+#define WAVING_MULTIPART_GRASS
 
 #define GRASS_RANDOMNESS 0.5 // [0.0 0.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0]
 
 #define RAINBOW_SELECT_BOX 0 // [0 1 2]
+
+#ifdef WAVING_MULTIPART_GRASS
+#endif
 
 ///////////////////////////////////////////
 // ----- DISTANT HORIZONS SETTINGS ----- //
@@ -1132,6 +1161,35 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 #ifdef VOXY_SSS
 #endif
 
+//////////////////////////////////
+// ----- PHOTONICS SETTINGS ----- //
+//////////////////////////////////
+
+// #define PHOTONICS_ENABLED
+
+// #define PHOTONICS_GI_ONLY
+
+// #define PHOTONICS_FLOODFILL_FOG_LIGHT_PROPAGATION
+
+#ifdef PHOTONICS_FLOODFILL_FOG_LIGHT_PROPAGATION
+#endif
+
+#if defined PHOTONICS_ENABLED && !defined PHOTONICS_GI_ONLY
+
+	#ifndef PHOTONICS_FLOODFILL_FOG_LIGHT_PROPAGATION
+		#undef IS_LPV_ENABLED
+		#undef LPV_ENABLED
+	#endif
+
+	#undef Hand_Held_lights
+	#undef VOXEL_REFLECTIONS
+	#undef MIRROR_IRON
+#endif
+
+#ifdef PHOTONICS_GI_ONLY
+#endif
+
+#define PHOTONICS_INDIRECT_BRIGHTNESS 1.0 // [0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.5 3.0 3.5 4.0 4.5 5.0]
 
 ////////////////////////////////
 // ----- DEBUG SETTINGS ----- //
@@ -1219,14 +1277,13 @@ const vec3 aerochrome_color = mix(vec3(1.0, 0.0, 0.0), vec3(0.715, 0.303, 0.631)
 #undef CUSTOM_MOON_ROTATION
 #define LIGHTNING_SHADOWS 0
 #undef END_ISLAND_LIGHT
-#if WATER_INTERACTION == 2
+#if WATER_INTERACTION == 2 && IRIS_VERSION < 11004
 	#define WATER_INTERACTION 1
 #endif
 #undef SHADER_GRASS
 #endif
 
-// only iris 1.7+ allows tessellation
-#ifndef IRIS_FEATURE_TESSELLATION_SHADERS
+#if MC_VERSION < 12101
 	#undef SHADER_GRASS
 #endif
 

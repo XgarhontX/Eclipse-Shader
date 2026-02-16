@@ -19,12 +19,13 @@
 #include "/lib/res_params.glsl"
 
 #define diagonal3_old(m) vec3((m)[0].x, (m)[1].y, m[2].z)
-#define  projMAD_old(m, v) (diagonal3_old(m) * (v) + (m)[3].xyz)
+#define projMAD_old(m, v) (diagonal3_old(m) * (v) + (m)[3].xyz)
 
 const bool colortex5MipmapEnabled = true;
 uniform float nightVision;
 uniform float frameTimeCounter;
 uniform float rainStrength;
+#define PHOTONICS_LIGHT_PASS
 
 #if defined OVERWORLD_SHADER || (defined END_ISLAND_LIGHT && defined END_SHADER)
 	const bool shadowHardwareFiltering = true;
@@ -110,13 +111,13 @@ uniform sampler2D colortex5; //TAA buffer/previous frame
 uniform sampler2D colortex6; //Noise
 uniform sampler2D colortex7; //water?
 uniform sampler2D colortex8; //Specular
-// uniform sampler2D colortex9; //Specular
+uniform sampler2D colortex9;
 uniform sampler2D colortex10;
 uniform sampler2D colortex11;
 uniform sampler2D colortex12;
 uniform sampler2D colortex13;
 uniform sampler2D colortex14;
-uniform sampler2D colortex15; // flat normals(rgb), vanillaAO(alpha)
+uniform sampler2D colortex15;
 
 in DATA {
 	flat vec2 TAA_Offset;
@@ -206,6 +207,8 @@ float convertHandDepth_2(in float depth, bool hand) {
 	#include "/lib/hsv.glsl"
 	#include "/lib/lpv_common.glsl"
 	#include "/lib/lpv_render.glsl"
+	#include "/lib/blocks.glsl"
+	#include "/lib/lpv_blocks.glsl"
 #endif
 
 #define DEFERRED_SPECULAR
@@ -227,6 +230,13 @@ uniform vec3 relativeEyePosition;
 #define FULLRESDEPTH
 
 #include "/lib/specular.glsl"
+#if defined VIVECRAFT
+	uniform bool vivecraftIsVR;
+	uniform vec3 vivecraftRelativeMainHandPos;
+	uniform vec3 vivecraftRelativeOffHandPos;
+	uniform mat4 vivecraftRelativeMainHandRot;
+	uniform mat4 vivecraftRelativeOffHandRot;
+#endif
 #include "/lib/diffuse_lighting.glsl"
 
 #include "/lib/end_fog.glsl"
@@ -613,7 +623,7 @@ void doEdgeAwareBlur(
 
 	for(int i = 0; i < 4; i++) {
 		#if defined DISTANT_HORIZONS || defined VOXY
-			float offsetDepth = sqrt(texelFetch(depth, UV + OFFSET[i] + UV_NOISE,0).z/65000.0);
+			float offsetDepth = sqrt(texelFetch(depth, UV + OFFSET[i] + UV_NOISE,0).z);
 		#else
 			float offsetDepth = ld(convertHandDepth_2(texelFetch(depth, UV + OFFSET[i] + UV_NOISE, 0).r,hand));
 		#endif
@@ -679,7 +689,7 @@ vec4 BilateralUpscale_VLFOG(sampler2D tex, sampler2D depth, float referenceDepth
 
 	for(int i = 0; i < samples; i++) {
 		#if defined DISTANT_HORIZONS || defined VOXY
-			float offsetDepth = sqrt(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE,0).a/65000.0);
+			float offsetDepth = sqrt(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE,0).a);
 		#else
 			float offsetDepth = ld(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE, 0).r);
 		#endif
@@ -706,7 +716,7 @@ vec3 ComputeShadowMap_COLOR(in vec3 projectedShadowPosition, float distortFactor
 
 	#ifdef BASIC_SHADOW_FILTER
 		int samples = SHADOW_FILTER_SAMPLE_COUNT;
-		float rdMul = (shadowBlockerDepth*distortFactor*d0*k/shadowMapResolution) * 0.3;
+		float rdMul = (shadowBlockerDepth*distortFactor*d0k) * 0.3;
 		
 		for(int i = 0; i < samples; i++){
 			vec2 offsetS = CleanSample(i, samples - 1, noise) * rdMul;
@@ -739,7 +749,7 @@ vec3 ComputeShadowMap_COLOR(in vec3 projectedShadowPosition, float distortFactor
 		}
 	#endif
 
-	#ifdef debug_SHADOWMAP
+	#if DEBUG_VIEW == debug_SHADOWMAP
 		shadowDebug = texture(shadow, projectedShadowPosition).x;
 	#endif
 	// #ifdef TRANSLUCENT_COLORED_SHADOWS
@@ -811,7 +821,7 @@ uniform float wetness;
 
 #ifdef OVERWORLD_SHADER
 	void applyPuddles(
-		in vec3 worldPos, in vec3 flatNormals, in float lightmap, in bool isWater, in bool eyeInWater, inout vec3 albedo, inout vec3 normals, inout float roughness, inout float f0, in bool isShaderGrass
+		in vec3 worldPos, in vec3 flatNormals, in float lightmap, in bool eyeInWater, inout vec3 albedo, inout vec3 normals, inout float roughness, inout float f0, in bool isShaderGrass, in float porosity
 	){
 		/* PUDDLE_MODE
 			0 = OFF, NO WETNESS
@@ -849,6 +859,9 @@ uniform float wetness;
 					puddles = clamp(halfWet - exp(-25.0 * puddles*puddles*puddles*puddles*puddles*Puddle_Size),0.0,1.0);
 
 					float wetnessStages = max(puddles, fullWet) * lightmap;
+					
+					fullWet = fullWet + porosity * fullWet;
+					float wetnessDarkening = max(puddles, fullWet*0.5) * lightmap;
 				#endif
 
 				#if PUDDLE_MODE == 2
@@ -856,15 +869,18 @@ uniform float wetness;
 					puddles = clamp(halfWet - exp(-25.0 * puddles*puddles*puddles*puddles*puddles*Puddle_Size),0.0,1.0);
 
 					float wetnessStages = puddles * lightmap;
+					float wetnessDarkening = min(wetnessStages + porosity * fullWet, 1.0);
 				#endif
 
 				#if PUDDLE_MODE == 3
 					float puddles = 0.0;
 					float wetnessStages = fullWet * lightmap;
+
+					fullWet = fullWet + porosity * fullWet;
+					float wetnessDarkening = fullWet*0.5*lightmap;
 				#endif				
 
 				wetnessStages *= effectStrength;
-				if(isWater) wetnessStages = 0.0;
 
 				#ifdef SHADER_GRASS
 				if(!isShaderGrass)
@@ -881,15 +897,15 @@ uniform float wetness;
 							rippleNormal = mix(flatNormals, ripple, smoothstep(35., 10., viewDist) * rainStrength * smoothstep(0.0, 1.0, rippleAmount));
 						}
 
-						normals = mix(normals, rippleNormal, puddles * effectStrength * clamp(flatNormals.y,0.0,1.0));
+						normals = mix(normals, rippleNormal, wetnessStages * clamp(flatNormals.y,0.0,1.0));
 					#else
-						normals = mix(normals, flatNormals, puddles * effectStrength * clamp(flatNormals.y,0.0,1.0));
+						normals = mix(normals, flatNormals, wetnessStages * clamp(flatNormals.y,0.0,1.0));
 					#endif
 				}
 
 				roughness = mix(roughness, 0.5*(1.0+snowR), wetnessStages * Puddle_Reflection_Sharpness);
 
-				if(f0 < 229.5/255.0 ) albedo = pow(albedo * (1.0 - 0.08*wetnessStages), vec3(1.0 + 0.7*wetnessStages));
+				if(f0 < 229.5/255.0 ) albedo = pow(albedo * (1.0 - 0.08*wetnessDarkening), vec3(1.0 + 0.7*wetnessDarkening));
 			}
 		#endif
 
@@ -904,7 +920,7 @@ uniform float wetness;
 				float upnormal = clamp(-(normals / dot(abs(normals),vec3(1.0))).y+clamp(normals.y,minClamp,1.0),0.,1.);
 				float snow = clamp(1.0 - 2.*upnormal - (1.0-effectStrength),0.0,1.0);
 
-				if(isWater || f0 > 229.5/255.0 || eyeInWater) snow = 0.0;
+				if(f0 > 229.5/255.0 || eyeInWater) snow = 0.0;
 
 				vec3 snowA = pow(texture(snowTexA, snowCoords).rgb, vec3(2.0/(ShaderSnowStrength-0.1)));
 				#ifdef SHADER_GRASS
@@ -964,7 +980,7 @@ void main() {
 		#if defined DISTANT_HORIZONS || defined VOXY
 			bool isDHrange = z >= 1.0;
 
-			float DH_mixedLinearZ = sqrt(texelFetch(colortex12,ivec2(gl_FragCoord.xy), 0).z/65000.0);
+			float DH_mixedLinearZ = sqrt(texelFetch(colortex9,ivec2(gl_FragCoord.xy), 0).z);
 			float DH_depth0 = 0.0;
 			if(isDHrange) DH_depth0 = texelFetch(dhVoxyDepthTex,ivec2(gl_FragCoord.xy), 0).x;
 			float DH_depth1 = texelFetch(dhVoxyDepthTex1,ivec2(gl_FragCoord.xy), 0).x;
@@ -982,12 +998,13 @@ void main() {
 
 			swappedDepth = depthOpaque;
 		#else
-			bool isDHrange = false;
-			float DH_depth0 = 0.0;
-			float DH_depth1 = 0.0;
+			const bool isDHrange = false;
+			const float DH_depth0 = 0.0;
+			const float DH_depth1 = 0.0;
 		#endif
 
 		bool eyeInWater = isEyeInWater == 1;
+		bool isSky = swappedDepth >= 1.0;
 
 	////// --------------- UNPACK OPAQUE GBUFFERS --------------- //////
 	
@@ -1020,20 +1037,22 @@ void main() {
 
 	////// --------------- UNPACK MISC --------------- //////
 	
-		vec4 SpecularTex = texelFetch(colortex8, ivec2(gl_FragCoord.xy), 0);
-		float LabSSS = clamp((-65.0 + SpecularTex.z * 255.0) / 190.0 ,0.0,1.0);	
-		// LabSSS = 1;
+		vec4 SpecularData = texelFetch(colortex8, ivec2(gl_FragCoord.xy), 0);
+		vec4 specdataUnpacked0 = vec4(decodeVec2(SpecularData.x),decodeVec2(SpecularData.y));
+		vec4 specdataUnpacked1 = vec4(decodeVec2(SpecularData.z),decodeVec2(SpecularData.w));
 
-		vec4 normalAndAO = texelFetch(colortex15, ivec2(gl_FragCoord.xy), 0);
-		vec3 FlatNormals = normalize(normalAndAO.rgb * 2.0 - 1.0);
+		vec4 SpecularTex = vec4(specdataUnpacked0.xz, specdataUnpacked1.xz);
+		vec3 FlatNormals = normalize(vec3(specdataUnpacked0.yw,specdataUnpacked1.y) * 2.0 - 1.0);
+		float vanilla_AO = min(max(specdataUnpacked1.w-0.005,0.0)/0.995,1.0);
+
+		float LabSSS = clamp((-65.0 + SpecularTex.z * 255.0) / 190.0 ,0.0,1.0);
+
+		float labPorosity = SpecularTex.z * 255.0 <= 64.5 ? clamp(SpecularTex.z * 255.0, 0.0, 64.5)/64.5 : 0.0;
+
 		vec3 slopednormal = normal;
-
-		float vanilla_AO = z < 1.0 ? clamp(normalAndAO.a,0,1) : 0.0;
-		// normalAndAO.a = clamp(pow(normalAndAO.a*5,4),0,1);
 
 		if(isDHrange){
 			FlatNormals = normal;
-			slopednormal = normal;
 		}
 
 
@@ -1056,7 +1075,7 @@ void main() {
 		// bool isReflective = abs(translucentMasks - 0.7) < 0.01 || isWater || isReflectiveEntity;
 		// bool isEntity = abs(translucentMasks - 0.9) < 0.01 || isReflectiveEntity;
 
-		bool lightningBolt = abs(opaqueMasks-0.5) <0.01;
+		// bool lightningBolt = abs(opaqueMasks-0.5) <0.01;
 		// bool isLeaf = abs(opaqueMasks-0.55) <0.01;
 		bool entities = abs(opaqueMasks-0.45) < 0.01;	
 		bool isGrass = abs(opaqueMasks-0.60) < 0.01;
@@ -1069,9 +1088,9 @@ void main() {
 		#endif
 
 		#if defined POM_OFFSET_SHADOW_BIAS
-			float POM_DEEPNESS = opaqueMasks < 0.43 ? 1.0 - min(max(0.4-opaqueMasks,0.0)/0.4,1.0) : 0.0;
+			float POM_DEEPNESS = opaqueMasks < 0.44 ? min(max(opaqueMasks/0.44,0.0)*3.0,1.0) : 0.0;
 		#else
-			float POM_DEEPNESS = 0.0;
+			const float POM_DEEPNESS = 0.0;
 		#endif
 		// bool handwater = abs(translucentMasks-0.3) < 0.01 ;
 		// bool blocklights = abs(opaqueMasks-0.8) <0.01;
@@ -1166,8 +1185,6 @@ void main() {
 			shadowColor = DirectLightColor;
 		#endif
 
-		MinimumLightColor = MinimumLightColor + 0.7 * MinimumLightColor * dot(slopednormal, feetPlayerPos_normalized);
-
 	////////////////////////////////////////////////////////////////////////////////////////////
 	////////////////////////////////	UNDER WATER SHADING		////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////////////////
@@ -1196,62 +1213,65 @@ void main() {
 		
 		Absorbtion = exp(-totEpsilon * max(Vdiff, minimumAbsorbance));
 
-		// things to note about sunlight in water
-		// sunlight gets absorbed by water on the way down to the floor, and on the way back up to your eye. im gonna ingore the latter part lol
-		// based on the angle of the sun, sunlight will travel through more/less water to reach the same spot. scale absorbtion depth accordingly
-		vec3 sunlightAbsorbtion = exp(-totEpsilon * (estimatedDepth/abs(WsunVec.y)));
+		if(!isSky) {
+			// things to note about sunlight in water
+			// sunlight gets absorbed by water on the way down to the floor, and on the way back up to your eye. im gonna ingore the latter part lol
+			// based on the angle of the sun, sunlight will travel through more/less water to reach the same spot. scale absorbtion depth accordingly
+			vec3 sunlightAbsorbtion = exp(-totEpsilon * (estimatedDepth/abs(WsunVec.y)));
 
-		float percievedWaterDepth = estimatedDepth;
+			float percievedWaterDepth = estimatedDepth;
 
-		if (eyeInWater){
-			estimatedDepth = 1.0;
+			if (eyeInWater){
+				estimatedDepth = 1.0;
 
-			// viewerWaterDepth = max(0.9-lightmap.y,0.0)*3.0;
-	  		float distanceFromWaterSurface = -(worldPos.y - waterEnteredAltitude);//max(-(feetPlayerPos.y + (cameraPosition.y - waterEnteredAltitude)),0.0) ;
+				// viewerWaterDepth = max(0.9-lightmap.y,0.0)*3.0;
+				float distanceFromWaterSurface = -(worldPos.y - waterEnteredAltitude);//max(-(feetPlayerPos.y + (cameraPosition.y - waterEnteredAltitude)),0.0) ;
+				
+				percievedWaterDepth = distanceFromWaterSurface;
+
+				distanceFromWaterSurface = max(distanceFromWaterSurface,0.0);
+
+				Absorbtion = exp(-totEpsilon * distanceFromWaterSurface);
+				
+				sunlightAbsorbtion = exp(-totEpsilon * (distanceFromWaterSurface/abs(WsunVec.y)));
+			} else {
+				// use hardcoded gradient position if the water surface normal does not face upwards.
+				vec3 waterNormal = clamp(normalize(cross(dFdx(playerPos0), dFdy(playerPos0))),0,1); // it uses depth that has POM written to it.
+				percievedWaterDepth = mix(-(feetPlayerPos.y + cameraPosition.y), percievedWaterDepth, waterNormal.y);
+			}
 			
-			percievedWaterDepth = distanceFromWaterSurface;
+			DirectLightColor *= sunlightAbsorbtion;
 
-			distanceFromWaterSurface = max(distanceFromWaterSurface,0.0);
+			if( nightVision > 0.0 ) Absorbtion += exp(-totEpsilon * 25.0) * nightVision;
 
-			Absorbtion = exp(-totEpsilon * distanceFromWaterSurface);
-			
-			sunlightAbsorbtion = exp(-totEpsilon * (distanceFromWaterSurface/abs(WsunVec.y)));
-		} else {
-			// use hardcoded gradient position if the water surface normal does not face upwards.
-	    	vec3 waterNormal = clamp(normalize(cross(dFdx(playerPos0), dFdy(playerPos0))),0,1); // it uses depth that has POM written to it.
-			percievedWaterDepth = mix(-(feetPlayerPos.y + cameraPosition.y), percievedWaterDepth, waterNormal.y);
+			// vec2 causticPos = pos.xz;
+			// causticPos = mix(causticPos, pos.xz, max(FlatNormals.y,0));
+			// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.y,0));
+			// causticPos = mix(causticPos, pos.zy, max(FlatNormals.x,0));
+			// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.z,0));
+			// causticPos = mix(causticPos, pos.xy, max(FlatNormals.x,0));
+			// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.x,0));
+
+			// apply caustics to the lighting, and make sure they dont look weird
+			DirectLightColor *= pow(mix(1.0, waterCaustics(worldPos, WsunVec, percievedWaterDepth)*WATER_CAUSTICS_BRIGHTNESS, clamp(estimatedDepth,0,1)), WATER_CAUSTICS_POWER);
 		}
-		
-		DirectLightColor *= sunlightAbsorbtion;
-
-		if( nightVision > 0.0 ) Absorbtion += exp(-totEpsilon * 25.0) * nightVision;
-
-		// vec2 causticPos = pos.xz;
-		// causticPos = mix(causticPos, pos.xz, max(FlatNormals.y,0));
-		// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.y,0));
-		// causticPos = mix(causticPos, pos.zy, max(FlatNormals.x,0));
-		// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.z,0));
-		// causticPos = mix(causticPos, pos.xy, max(FlatNormals.x,0));
-		// causticPos = mix(causticPos, pos.xy, max(-FlatNormals.x,0));
-
-		// apply caustics to the lighting, and make sure they dont look weird
-		DirectLightColor *= pow(mix(1.0, waterCaustics(worldPos, WsunVec, percievedWaterDepth)*WATER_CAUSTICS_BRIGHTNESS, clamp(estimatedDepth,0,1)), WATER_CAUSTICS_POWER);
 	}
 
 
-	if (swappedDepth < 1.0) {
+	if (!isSky) {
+		MinimumLightColor = MinimumLightColor + 0.7 * MinimumLightColor * dot(slopednormal, feetPlayerPos_normalized);
 
 		// idk why this do
-
 		// this seems to be compensating view bobbing, but why not do this when calculating feetPlayerPos? hmmm
 		feetPlayerPos += gbufferModelViewInverse[3].xyz;
+		float viewDist = length(feetPlayerPos);
 		worldPos = feetPlayerPos + cameraPosition;
 	////////////////////////////////////////////////////////////////////////////////////////////
 	///////////////////////////////////	    FILTER STUFF      //////////////////////////////////
 	////////////////////////////////////////////////////////////////////////////////////////////
 
 		#if (defined DISTANT_HORIZONS && defined DH_AMBIENT_OCCLUSION) || (defined VOXY && defined VOXY_AMBIENT_OCCLUSION)
-			doEdgeAwareBlur(colortex3,	colortex14, colortex12, DH_mixedLinearZ, hand, SSAO_SSS, filteredShadow);
+			doEdgeAwareBlur(colortex3,	colortex14, colortex9, DH_mixedLinearZ, hand, SSAO_SSS, filteredShadow);
 		#else
 			doEdgeAwareBlur(colortex3,	colortex14, depthtex0, ld(z0), 	hand, SSAO_SSS, filteredShadow);
 		#endif
@@ -1277,18 +1297,18 @@ void main() {
 	////////////////////////////////	SHADOWMAP		////////////////////////////////
 		// setup shadow projection
 
-		float shadowMapFalloff = smoothstep(0.0, 1.0, min(max(1.0 - length(feetPlayerPos) / (shadowDistance+32.0),0.0)*5.0,1.0));
+		float shadowMapFalloff = smoothstep(0.0, 1.0, min(max(1.0 - viewDist / (shadowDistance+32.0),0.0)*5.0,1.0));
 		#if defined DISTANT_HORIZONS || defined VOXY
-			float shadowMapFalloff2 = smoothstep(0.0, 1.0, min(max(1.0 - length(feetPlayerPos) / min(shadowDistance, max(far-32.0,32.0)),0.0)*5.0,1.0));
+			float shadowMapFalloff2 = smoothstep(0.0, 1.0, min(max(1.0 - viewDist / min(shadowDistance, max(far-32.0,32.0)),0.0)*5.0,1.0));
 		#else
-			float shadowMapFalloff2 = smoothstep(0.0, 1.0, min(max(1.0 - length(feetPlayerPos) / shadowDistance,0.0)*5.0,1.0));
+			float shadowMapFalloff2 = smoothstep(0.0, 1.0, min(max(1.0 - viewDist / shadowDistance,0.0)*5.0,1.0));
 		#endif
 
 		if(eyeInWater){
 			shadowMapFalloff = 1.0;
 			shadowMapFalloff2 = 1.0;
 		}
-		
+
 		vec3 shadowPlayerPos = feetPlayerPos;
 
 		#if LIGHTLEAKFIX_MODE == 1
@@ -1302,7 +1322,7 @@ void main() {
 				vec3 projectedShadowPosition = mat3(shadowModelView) * shadowPlayerPos + shadowModelView[3].xyz;
 			#endif
 
-			applyShadowBias(projectedShadowPosition, shadowPlayerPos, FlatNormals, POM_DEEPNESS);
+			applyShadowBias(projectedShadowPosition, shadowPlayerPos, FlatNormals);
 			projectedShadowPosition = diagonal3_old(shadowProjection) * projectedShadowPosition + shadowProjection[3].xyz;
 
 			// Calclulate distortion factor before bias application
@@ -1313,14 +1333,18 @@ void main() {
 				float distortFactor = 1.0;
 			#endif
 
-			projectedShadowPosition.z += shadowProjection[3].z * 0.0012;
+			#if defined POM_OFFSET_SHADOW_BIAS && defined POM
+				projectedShadowPosition.z += shadowProjection[3].z * (0.0012 + POM_DEEPNESS * mix(0.25,1.0,POM_DEPTH) * 0.025);
+			#else
+				projectedShadowPosition.z += shadowProjection[3].z * 0.0012;
+			#endif
 		#else
 			float distortFactor = 1.0;
 		#endif
 
 		#if defined END_ISLAND_LIGHT && defined END_SHADER
 			vec4 shadowPos = customShadowMatrixSSBO * (gbufferModelViewInverse * vec4(viewPos, 1.0));
-			applyShadowBias(shadowPos.xyz, shadowPlayerPos, FlatNormals, POM_DEEPNESS);
+			applyShadowBias(shadowPos.xyz, shadowPlayerPos, FlatNormals);
 			shadowPos = customShadowPerspectiveSSBO * shadowPos;
 			vec3 projectedShadowPosition = shadowPos.xyz / shadowPos.w;
 		#endif
@@ -1461,6 +1485,18 @@ void main() {
 			
 			Indirect_lighting += doIndirectLighting(AmbientLightColor * skylight, MinimumLightColor, lightmap.y);
 
+			#ifdef PHOTONICS_ENABLED
+				#if defined DISTANT_HORIZONS || defined VOXY
+					float photonicsFalloff = smoothstep(min(far, 128.0), min(0.9*far, 114.0), viewDist);
+				#else
+					float photonicsFalloff = smoothstep(128.0, 114.0, viewDist);
+				#endif
+
+				vec3 gi_color = texture(colortex15, texcoord).xyz*2.5*PHOTONICS_INDIRECT_BRIGHTNESS* skylight;
+				gi_color += mix(MinimumLightColor * (MIN_LIGHT_AMOUNT * 0.004 + nightVision*0.02), MinimumLightColor * (MIN_LIGHT_AMOUNT_INSIDE * 0.004 + nightVision*0.02), 1.0-lightmap.y);
+
+				Indirect_lighting = mix(Indirect_lighting, gi_color, photonicsFalloff);
+			#endif
 		#endif
 
 		#ifdef NETHER_SHADER
@@ -1607,14 +1643,14 @@ void main() {
 		#endif
 
 		#if defined OVERWORLD_SHADER && defined DEFERRED_SPECULAR && (PUDDLE_MODE > 0 || ShaderSnow > 0)
-			if(!hand && !entities) applyPuddles(worldPos, FlatNormals, lightmap.y, isWater, eyeInWater, albedo, normal, SpecularTex.r, SpecularTex.g, isShaderGrass);
+			if(!hand && !entities && !isWater) applyPuddles(worldPos, FlatNormals, lightmap.y, eyeInWater, albedo, normal, SpecularTex.r, SpecularTex.g, isShaderGrass, labPorosity);
 		#endif
 
 		vec3 FINAL_COLOR = (Indirect_lighting + Direct_lighting) * albedo;
 
 		Emission(FINAL_COLOR, albedo, SpecularTex.a);
 		
-		if(lightningBolt) FINAL_COLOR = vec3(77.0, 153.0, 255.0);
+		// if(lightningBolt) FINAL_COLOR = vec3(77.0, 153.0, 255.0);
 		
 		#if defined DEFERRED_SPECULAR	
 			vec3 specularNoises = vec3(vec2(blueNoise(), ig_noise), ig_noise);
@@ -1638,15 +1674,17 @@ void main() {
 				// vec3 orbitstar = vec3(feetPlayerPos_normalized.x,abs(feetPlayerPos_normalized.y),feetPlayerPos_normalized.z); orbitstar.x -= WsunVec.x*0.2;
 				vec3 worldDir = normalize(mat3(gbufferModelViewInverse) * toScreenSpace(vec3(texcoord/RENDER_SCALE,1.0)));
 
-				vec3 orbitstar = customRotation(sunPathRotation, worldTimeSmooth) * worldDir;
+				#if RESOURCEPACK_SKY == 0 || RESOURCEPACK_SKY == 3
+					vec3 orbitstar = customRotation(sunPathRotation, worldTimeSmooth) * worldDir;
 
-				vec3 starColor = vec3(1.0);
-				#if defined OVERWORLD_SHADER && defined TWILIGHT_FOREST_FLAG
-					float stars = stars(orbitstar, starColor) * 100.0;
-					Background += stars * starColor;
-  				#else
-					float stars = stars(orbitstar, starColor) * 10.0;
-					Background += stars * starColor * mix(clamp(-unsigned_WsunVec.y*2.0,0.0,1.0), 1.0, clamp(cameraPosition.y-15000.0, 0.0, 45000.0)/45000.0);
+					vec3 starColor = vec3(1.0);
+					#if defined OVERWORLD_SHADER && defined TWILIGHT_FOREST_FLAG
+						float stars = stars(orbitstar, starColor) * 100.0;
+						Background += stars * starColor;
+					#else
+						float stars = stars(orbitstar, starColor) * 10.0;
+						Background += stars * starColor * mix(clamp(-unsigned_WsunVec.y*2.0,0.0,1.0), 1.0, clamp(cameraPosition.y-15000.0, 0.0, 45000.0)/45000.0);
+					#endif
 				#endif
 
 				#if !defined AMBIENT_LIGHT_ONLY && (RESOURCEPACK_SKY == 1 || RESOURCEPACK_SKY == 0)
@@ -1722,7 +1760,7 @@ void main() {
 								float normalSunLight = dot(worldNormal, unsigned_WsunVec);
 								
 								// smoothstep to boost contrast
-								mask *= smoothstep(-1.0, 1.0, normalSunLight);
+								mask *= smoothstep(-0.5, 0.5, normalSunLight);
 							#else
 								float mask = smoothstep(-0.2, 0.12, sunLight);
 							#endif
@@ -1745,11 +1783,11 @@ void main() {
 
 								moonphaseMult = phase[moonPhase];
 							#endif
-							vec3 moonTex = (1 - vec3(0.0, 0.5, 0.7)*clamp((1-0.5*v)*moonVis, 0.0, 1.0)) * moonphaseMult * texture(moon, moonSphericalUV).rgb;
+							vec3 moonTex = (1.0 - vec3(0.0, 0.5, 0.7)*clamp((1-0.5*v)*moonVis, 0.0, 1.0)) * moonphaseMult * texture(moon, moonSphericalUV).rgb;
 						#endif
 						
 						vec3 moonLightCol = moonColorBase2;
-						Background += pow(moonTex, vec3(3.2)) * 20.0 * drawRealMoon(feetPlayerPos_normalized, WmoonVec, moonLightCol, Background, moonSize);
+						Background += pow(moonTex, vec3(3.2)) * 12.0 * drawRealMoon(feetPlayerPos_normalized, WmoonVec, moonLightCol, Background, moonSize);
 					#else
 						vec3 moonLightCol = moonColorSSBO / 2400.0;
 						Background += drawMoon(feetPlayerPos_normalized, WmoonVec, moonLightCol, Background); 
@@ -1788,18 +1826,8 @@ void main() {
 	if(translucentMasks > 0.0 && !hand){
 		// water absorbtion will impact ALL light coming up from terrain underwater.
 		gl_FragData[0].rgb *= Absorbtion;
-
-		// #if defined DISTANT_HORIZONS || defined VOXY
-	  	// 	float DH_mixedLinearZ = sqrt(texelFetch(colortex12,ivec2(gl_FragCoord.xy),0).a/65000.0);
-		// 	vec4 vlBehingTranslucents = BilateralUpscale_VLFOG(colortex13, colortex12, DH_mixedLinearZ);
-		// #else
-		// 	vec4 vlBehingTranslucents = BilateralUpscale_VLFOG(colortex13, depthtex1, ld(z));
-		// #endif
-
-    	// gl_FragData[0].rgb = gl_FragData[0].rgb * vlBehingTranslucents.a + vlBehingTranslucents.rgb;
 	}
 
-	
 	////// DEBUG VIEW STUFF
 	#if DEBUG_VIEW == debug_SHADOWMAP	
 		gl_FragData[0].rgb = vec3(1.0) * (Shadows * NdotL * 0.9 + 0.1);

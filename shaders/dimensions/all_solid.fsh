@@ -56,6 +56,7 @@ const float maxcoord = 1.0-mincoord;
 const float MAX_OCCLUSION_DISTANCE = MAX_DIST;
 const float MIX_OCCLUSION_DISTANCE = MAX_DIST*0.9;
 const int   MAX_OCCLUSION_POINTS   = MAX_ITERATIONS;
+const float   MAX_OCCLUSION_POINTS_DIV = 1.0 / MAX_OCCLUSION_POINTS;
 
 uniform vec2 texelSize;
 uniform int framemod8;
@@ -181,12 +182,13 @@ vec3 worldToView(vec3 worldPos) {
     pos = gbufferModelView * pos;
     return pos.xyz;
 }
-vec4 encode (vec3 n, vec2 lightmaps){
+
+vec2 encodeNormal(vec3 n){
 	n.xy = n.xy / dot(abs(n), vec3(1.0));
 	n.xy = n.z <= 0.0 ? (1.0 - abs(n.yx)) * sign(n.xy) : n.xy;
     vec2 encn = clamp(n.xy * 0.5 + 0.5,-1.0,1.0);
 	
-    return vec4(encn,vec2(lightmaps.x,lightmaps.y));
+    return encn;
 }
 
 //encoding by jodie
@@ -347,14 +349,17 @@ uniform float alphaTestRef;
 
 layout(location = 0) out vec4 OutAlbedo;
 layout(location = 1) out vec4 OutSpecular;
-layout(location = 2) out vec4 OutNormalAO;
 
 #if defined HAND || defined ENTITIES || defined BLOCKENTITIES
-	layout(location = 3) out vec4 OutTranslucents;
-
-	/* RENDERTARGETS:1,8,15,2 */
+	layout(location = 2) out vec4 OutTranslucents;
+	#ifdef VOXY
+		layout(location = 3) out vec4 OutTranslucents2;
+		/* RENDERTARGETS:1,8,2,7 */
+	#else
+		/* RENDERTARGETS:1,8,2 */
+	#endif
 #else
-	/* RENDERTARGETS:1,8,15 */
+	/* RENDERTARGETS:1,8 */
 #endif
 
 void main() {
@@ -441,35 +446,33 @@ void main() {
 	#endif
 	{
 		float depthmap = readNormal(data_in.texcoord.st).a;
-		float used_POM_DEPTH = 1.0;
-		float pomdepth = POM_DEPTH*falloff;
+		float pomdepth = POM_DEPTH * falloff;
 
  		if ( viewVector.z < 0.0 && depthmap < 0.9999 && depthmap > 0.00001) {	
 			float noise = BN;
 			#ifdef Adaptive_Step_length
-				vec3 interval = (viewVector.xyz / -viewVector.z / MAX_OCCLUSION_POINTS * pomdepth) * clamp(1.0-pow(depthmap,2),0.1,1.0);
-				used_POM_DEPTH = 1.0;
+				depthmap = clamp(1.0 - depthmap * depthmap, 0.1, 1.0);
+				vec3 interval = (viewVector.xyz / -viewVector.z * MAX_OCCLUSION_POINTS_DIV * pomdepth) * depthmap;
 			#else
-				vec3 interval = viewVector.xyz /-viewVector.z/MAX_OCCLUSION_POINTS*pomdepth;
+				vec3 interval = viewVector.xyz /-viewVector.z * MAX_OCCLUSION_POINTS_DIV * pomdepth;
 			#endif
 			vec3 coord = vec3(data_in.texcoord.st , 1.0);
 
-			coord += interval * noise * used_POM_DEPTH;
+			coord += interval * noise;
 
 			float sumVec = noise;
-			for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - pomdepth + pomdepth * readNormal(coord.st).a  ) < coord.p  && coord.p >= 0.0; ++loopCount) {
-				coord = coord + interval  * used_POM_DEPTH; 
-				sumVec += used_POM_DEPTH; 
-
-				#if defined POM_OFFSET_SHADOW_BIAS
-					// absolutely disgusting but works for now
-					if(loopCount > MAX_OCCLUSION_POINTS*0.01 * POM_DEPTH * 30.0) saveDepth = max(0.20,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.02 * POM_DEPTH * 30.0) saveDepth = max(0.25,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.03 * POM_DEPTH * 30.0) saveDepth = max(0.30,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.05 * POM_DEPTH * 30.0) saveDepth = max(0.35,saveDepth);
-					if(loopCount > MAX_OCCLUSION_POINTS*0.06 * POM_DEPTH * 30.0) saveDepth = max(0.40,saveDepth);
-				#endif
+			for (int loopCount = 0; (loopCount < MAX_OCCLUSION_POINTS) && (1.0 - pomdepth + pomdepth * readNormal(coord.st).a) < coord.p && coord.p >= 0.0; ++loopCount) {
+				coord = coord + interval; 
+				sumVec += 1.0; 
 			}
+
+			#if defined POM_OFFSET_SHADOW_BIAS
+				#ifdef Adaptive_Step_length
+					saveDepth += clamp(MAX_OCCLUSION_POINTS_DIV * depthmap-0.0001, 0.0, 1.0);
+				#else
+					saveDepth += clamp(MAX_OCCLUSION_POINTS_DIV-0.0001, 0.0, 1.0);
+				#endif
+			#endif
 	
 			if (coord.t < mincoord) {
 				if (readTexture(vec2(coord.s,mincoord)).a == 0.0) {
@@ -491,22 +494,16 @@ void main() {
 
 	float opaqueMasks = 1.0;
 
-	#ifndef HAND
+	#ifdef HAND
+		opaqueMasks = 0.75;
+	#else
 		#if defined WORLD && !defined ENTITIES
 			if(data_in.blockID == BLOCK_GROUND_WAVING_VERTICAL || data_in.blockID == BLOCK_GRASS_SHORT || data_in.blockID == BLOCK_GRASS_TALL_LOWER || data_in.blockID == BLOCK_GRASS_TALL_UPPER ) opaqueMasks = 0.60;
 			else if(data_in.blockID == BLOCK_AIR_WAVING) opaqueMasks = 0.55;
 		#endif
 
 		#if defined ENTITIES
-			// try and single out nametag text and then discard nametag background
-			// if( dot(gl_Color.rgb, vec3(1.0/3.0)) < 1.0) vNameTags = 1;
-			// if(gl_Color.a < 1.0) vNameTags = 1;
-			// if(gl_Color.a >= 0.24 && gl_Color.a <= 0.25 ) gl_Position = vec4(10,10,10,1);
-			#ifdef INCLUDE_UNLISTED_ENTITIES
-				opaqueMasks = 0.45;
-			#else
-				if(data_in.blockID == ENTITY_SSS_NONE || data_in.blockID == ENTITY_BOAT || data_in.blockID == ENTITY_SMALLSHIPS || data_in.blockID == ENTITY_SSS_MEDIUM || data_in.blockID == ENTITY_SSS_WEAK || data_in.blockID == ENTITY_PLAYER || data_in.blockID == ENTITY_CURRENT_PLAYER) opaqueMasks = 0.45;
-			#endif
+			opaqueMasks = 0.45;
 		#endif
 
 		#if !defined BLOCKENTITIES && !defined ENTITIES && defined SHADER_GRASS && !defined COLORWHEEL && !defined HAND && !defined CUTOUT
@@ -712,24 +709,19 @@ void main() {
 	#endif
 
 	#ifdef WORLD
-		if (Albedo.a > 0.1) Albedo.a = opaqueMasks;
-		else Albedo.a = 0.0;
+		Albedo.a = opaqueMasks;
 
 		#if defined POM_OFFSET_SHADOW_BIAS && defined POM && (!defined ENTITIES && !defined HAND || defined COLORWHEEL)
-			if(saveDepth > 0) Albedo.a = saveDepth;
+			if(saveDepth > 0) Albedo.a = clamp(sqrt(saveDepth)*0.44, 0.0, 0.44);
 		#endif
 	#endif
 
-	#ifdef HAND
-		if (Albedo.a > 0.1){
-			Albedo.a = 0.75;
-			OutTranslucents = vec4(0.0);
-		} else {
-			Albedo.a = 1.0;
-		}
-	#endif
-	#if defined PARTICLE_RENDERING_FIX && (defined ENTITIES || defined BLOCKENTITIES)
+	#if defined ENTITIES || defined BLOCKENTITIES || defined HAND
 		OutTranslucents = vec4(0.0);
+
+		#ifdef VOXY
+			OutTranslucents2 = vec4(0.0);
+		#endif
 	#endif
 
 	// #ifdef COLORWHEEL
@@ -748,11 +740,11 @@ void main() {
 		{
 			vec4 NormalTex = texture_POMSwitch(normals, adjustedTexCoord.xy, vec4(dcdx,dcdy), ifPOM,textureLOD).xyzw;
 			
-			#ifdef MATERIAL_AO
+			#if defined MATERIAL_AO && defined MC_TEXTURE_FORMAT_LAB_PBR
 				Albedo.rgb *= NormalTex.b*0.5+0.5;
 			#endif
 
-			float Heightmap = 1.0 - NormalTex.w;
+			// float Heightmap = 1.0 - NormalTex.w;
 
 			NormalTex.xy = NormalTex.xy * 2.0-1.0;
 			NormalTex.z = sqrt(max(1.0 - dot(NormalTex.xy, NormalTex.xy), 0.0));
@@ -766,6 +758,7 @@ void main() {
 	//////////////////////////////// 				//////////////////////////////// 
 	
 	#ifdef WORLD
+		normal = viewToWorld(normal);
 
 		float SSSAMOUNT = 0.0;
 		#if (SSS_TYPE == 1 || SSS_TYPE == 2) && !defined HAND
@@ -806,7 +799,12 @@ void main() {
 					#endif
 				) {
 					SSSAMOUNT = 0.5;
-				}
+				} 
+				#if defined CUTOUT
+					else if (data_in.blockID == -BLOCK_GRASS) {
+						SSSAMOUNT = 0.3;
+					}
+				#endif
 			#endif
 
 			#ifdef BLOCKENTITIES
@@ -982,17 +980,26 @@ void main() {
 			PackLightmaps = clamp( PackLightmaps + PackLightmaps * (BN-0.5)*0.005,0,1);
 		#endif
 
-		normal = viewToWorld(normal);
-
 		#if !defined BLOCKENTITIES && !defined ENTITIES && !defined HAND && defined SHADER_GRASS && !defined COLORWHEEL && defined WORLD && !defined CUTOUT
 			if (ShaderGrass) {flatNormals = data_in.normalMat; normal = data_in.texcoordam.xyz;}
 		#endif
 
-		vec4 data1 = clamp( encode(normal, PackLightmaps), 0.0, 1.0);
+		vec4 data1 = clamp(vec4(encodeNormal(normal), PackLightmaps), 0.0, 1.0);
+
+		Albedo = clamp(Albedo, 0.0, 1.0);
 
 		OutAlbedo = vec4(encodeVec2(Albedo.x,data1.x),	encodeVec2(Albedo.y,data1.y),	encodeVec2(Albedo.z,data1.z),	encodeVec2(data1.w,Albedo.w));
 
-		OutNormalAO = vec4(flatNormals * 0.5 + 0.5, vanillaAO);
+		vec4 otherData = clamp(vec4(flatNormals * 0.5 + 0.5, vanillaAO), 0.0, 1.0);
+		OutSpecular = clamp(OutSpecular, 0.0, 1.0);
+
+		OutSpecular = vec4(
+			encodeVec2(OutSpecular.x, otherData.x),
+			encodeVec2(OutSpecular.y, otherData.y),
+			encodeVec2(OutSpecular.z, otherData.z),
+			encodeVec2(OutSpecular.w, otherData.w)
+		);
+
 	#endif
 	
 }

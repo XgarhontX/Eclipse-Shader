@@ -42,7 +42,6 @@ uniform sampler2D colortex11;
 uniform sampler2D colortex12;
 uniform sampler2D colortex13;
 uniform sampler2D colortex14;
-uniform sampler2D colortex15;
 uniform vec2 texelSize;
 
 uniform float viewHeight;
@@ -330,14 +329,14 @@ vec3 toClipSpace3Prev_DH( vec3 viewSpacePosition, bool depthCheck ) {
 	#endif
 }
 
-vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeResults, float referenceDepth, sampler2D depth, bool hand, bool behindTranslucents){
+vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeResults, float referenceDepth, sampler2D depth, bool hand, const int behindTranslucents){
 
   vec4 colorSum = vec4(0.0);
   float edgeSum = 0.0;
   #if defined DISTANT_HORIZONS || defined VOXY
-    float threshold = 0.05;
+    const float threshold = 0.05;
   #else
-    float threshold = 0.005;
+    const float threshold = 0.005;
   #endif
 
   #ifdef HQ_CLOUD_UPSAMPLE
@@ -354,7 +353,7 @@ vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeRe
   ivec2 UV_COLOR = ivec2(UV*VL_RENDER_SCALE);
   ivec2 UV_NOISE = ivec2(gl_FragCoord.xy*texelSize + 1);
 
-	ivec2 OFFSET[9] = ivec2[](
+	const ivec2 OFFSET[9] = ivec2[9](
     ivec2(-1,-1),
 	 	ivec2( 1, 1),
 		ivec2(-1, 1),
@@ -369,12 +368,7 @@ vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeRe
   for(int i = 0; i < samples; i++) {
 
 		#if defined DISTANT_HORIZONS || defined VOXY
-		  float offsetDepth;
-      if(!behindTranslucents) {
-        offsetDepth = sqrt(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE,0).z/65000.0);
-      } else {
-        offsetDepth = sqrt(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE,0).a/65000.0);
-      }
+      float offsetDepth = sqrt(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE,0)[behindTranslucents]);
     #else
       float offsetDepth = linearize(texelFetch(depth, UV_DEPTH + (OFFSET[i] + UV_NOISE) * SCALE, 0).r);
     #endif
@@ -382,7 +376,7 @@ vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeRe
     float edgeDiff = abs(offsetDepth - referenceDepth) < threshold ? 1.0 : 1e-7;
     outerEdgeResults = max(outerEdgeResults, abs(referenceDepth - offsetDepth));
 
-    vec4 offsetColor = texelFetch(colortex, UV_COLOR + OFFSET[i] + UV_NOISE, 0).rgba;
+    vec4 offsetColor = texelFetch(colortex, UV_COLOR + OFFSET[i] + UV_NOISE, 0);
     colorSum += offsetColor*edgeDiff;
     edgeSum += edgeDiff;
 
@@ -393,13 +387,13 @@ vec4 bilateralUpsample(vec2 fragcoord, sampler2D colortex, out float outerEdgeRe
   return colorSum / edgeSum;
 }
 
-vec4 VLTemporalFiltering(vec3 viewPos, in float referenceDepth, sampler2D depth, bool hand){
+vec4 VLTemporalFiltering(vec3 playerPosIn, in float referenceDepth, sampler2D depth, bool hand){
   vec2 screenEdges = 2.0/vec2(viewWidth, viewHeight);
   vec2 offsetTexcoord = clamp(gl_FragCoord.xy*texelSize, screenEdges, 1.0-screenEdges);
   vec2 VLtexCoord = offsetTexcoord * VL_RENDER_SCALE;
   
 	// get previous frames position stuff for UV
-	vec3 playerPos = mat3(gbufferModelViewInverse) * viewPos + gbufferModelViewInverse[3].xyz + (cameraPosition - previousCameraPosition);
+	vec3 playerPos = playerPosIn + (cameraPosition - previousCameraPosition);
 	vec3 previousPosition = mat3(gbufferPreviousModelView) * playerPos + gbufferPreviousModelView[3].xyz;
 	previousPosition = toClipSpace3Prev(previousPosition);
 
@@ -416,7 +410,7 @@ vec4 VLTemporalFiltering(vec3 viewPos, in float referenceDepth, sampler2D depth,
   // to fill pixel gaps in geometry edges, do a bilateral upsample.
   // pass a mask to only show upsampled color around the edges of blocks. this is so it doesnt blur reprojected results.
   float outerEdgeResults = 0.0;
-  vec4 upsampledCurrentFrame = bilateralUpsample(gl_FragCoord.xy , colortex0, outerEdgeResults, referenceDepth, depth, hand, false);
+  vec4 upsampledCurrentFrame = bilateralUpsample(gl_FragCoord.xy , colortex0, outerEdgeResults, referenceDepth, depth, hand, 2);
   // vec4 upsampledCurrentFrame = BilateralUpscale(colortex0, depth, gl_FragCoord.xy - 1.5, referenceDepth);
   
 	vec4 col1 = texture(colortex0, VLtexCoord + vec2( texelSize.x,  texelSize.y));
@@ -596,7 +590,7 @@ void main() {
 
 	////// --------------- UNPACK TRANSLUCENT GBUFFERS --------------- //////
 	vec4 data = texelFetch(colortex11,ivec2(texcoord/texelSize),0).rgba;
-	vec4 unpack0 = vec4(decodeVec2(data.r),decodeVec2(data.g)) ;
+	vec4 unpack0 = vec4(decodeVec2(data.r),decodeVec2(data.g));
 	vec2 unpack1 = decodeVec2(data.b);
 	
 	vec4 albedo = vec4(unpack0.ba,unpack1);
@@ -621,10 +615,10 @@ void main() {
 
   ////// --------------- get volumetrics
   #if defined DISTANT_HORIZONS || defined VOXY
-	  float DH_mixedLinearZ = sqrt(texelFetch(colortex12,ivec2(gl_FragCoord.xy),0).z/65000.0);
-    vec4 temporallyFilteredVL = VLTemporalFiltering(viewPos, DH_mixedLinearZ, colortex12, hand);
+	  float DH_mixedLinearZ = sqrt(texelFetch(colortex9,ivec2(gl_FragCoord.xy),0).z);
+    vec4 temporallyFilteredVL = VLTemporalFiltering(playerPos, DH_mixedLinearZ, colortex9, hand);
   #else
-    vec4 temporallyFilteredVL = VLTemporalFiltering(viewPos, frDepth, depthtex0, hand);
+    vec4 temporallyFilteredVL = VLTemporalFiltering(playerPos, frDepth, depthtex0, hand);
   #endif
 
   gl_FragData[2] = temporallyFilteredVL;
@@ -636,7 +630,9 @@ void main() {
   #if FAKE_REFRACTION_AMOUNT > 0
     vec3 color;
     #if defined DISTANT_HORIZONS || defined VOXY
-    if(isDHrange || hand) {
+
+    bool isLOD = abs(data.a - 0.5) < 0.01;
+    if(isDHrange || hand || isLOD) {
       color = texture(colortex3, texcoord).rgb;
     }
     else
@@ -786,10 +782,10 @@ void main() {
   ////// --------------- get volumetrics behind translucents
   float blank = 0.0;
   #if defined DISTANT_HORIZONS || defined VOXY
-    DH_mixedLinearZ = sqrt(texelFetch(colortex12,ivec2(gl_FragCoord.xy),0).a/65000.0);
-    vec4 VLBehindTranslucents = bilateralUpsample(refractedCoord/texelSize, colortex13, blank, DH_mixedLinearZ, colortex12, hand, true);
+    DH_mixedLinearZ = sqrt(texelFetch(colortex9,ivec2(gl_FragCoord.xy),0).a);
+    vec4 VLBehindTranslucents = bilateralUpsample(refractedCoord/texelSize, colortex13, blank, DH_mixedLinearZ, colortex9, hand, 3);
   #else
-    vec4 VLBehindTranslucents = bilateralUpsample(refractedCoord/texelSize, colortex13, blank, linearize(texelFetch(depthtex1, ivec2(refractedCoord/texelSize),0).x), depthtex1, hand, true);
+    vec4 VLBehindTranslucents = bilateralUpsample(refractedCoord/texelSize, colortex13, blank, linearize(texelFetch(depthtex1, ivec2(refractedCoord/texelSize),0).x), depthtex1, hand, 3);
   #endif
 
   ////// --------------- START BLENDING FOGS AND FORWARD RENDERED COLOR
@@ -908,7 +904,7 @@ void main() {
   // (bloomy) rain effect
   #ifdef OVERWORLD_SHADER
     #if RAIN_MODE == 0 // brighten the color behind
-      float rainDrops = texelFetch(colortex9,ivec2(texcoord/texelSize),0).a;
+      float rainDrops = texelFetch(colortex9,ivec2(texcoord/texelSize),0).r;
       if(hand) rainDrops *= (1.0-TranslucentShader.a);
 
       if(rainDrops > 0.01) {
@@ -917,6 +913,7 @@ void main() {
       }
     #else // add albedo of weather particle
       vec4 rainDrops = texelFetch(colortex9,ivec2(texcoord/texelSize),0);
+      rainDrops = vec4(decodeVec2(rainDrops.x), decodeVec2(rainDrops.y));
       if(hand) rainDrops.a *= (1.0-TranslucentShader.a);
 
       if(rainDrops.a > 0.01) {
